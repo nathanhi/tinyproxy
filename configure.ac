@@ -134,6 +134,8 @@ fi
 
 AC_CHECK_LIB(resolv, inet_aton)
 
+AC_CHECK_LIB(proxy, px_proxy_factory_get_proxies)
+
 dnl
 dnl Checks for headers
 dnl

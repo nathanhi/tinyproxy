@@ -29,6 +29,7 @@
 #include "log.h"
 #include "base64.h"
 #include "basicauth.h"
+#include <proxy.h>
 
 #ifdef UPSTREAM_SUPPORT
 const char *
@@ -39,6 +40,7 @@ proxy_type_name(proxy_type type)
         case PT_HTTP: return "http";
         case PT_SOCKS4: return "socks4";
         case PT_SOCKS5: return "socks5";
+        case PT_PAC: return "pac";
         default: return "unknown";
     }
 }
@@ -53,6 +55,8 @@ const char* upstream_build_error_string(enum upstream_build_error ube) {
         [UBE_INVHOST] = "Nonsense upstream rule: invalid host or port",
         [UBE_INVPARAMS] = "Nonsense upstream rule: invalid parameters",
         [UBE_NETMASK] = "Nonsense upstream rule: failed to parse netmask",
+        [UBE_NOLIBPROXY] = "This version of tinyproxy is compiled without support for libproxy and cannot handle PAC URLs",
+        [UBE_INVPACURL] = "Invalid PAC upstream URL",
         };
         return emap[ube];
 }
@@ -98,6 +102,11 @@ static struct upstream *upstream_build (const char *host, int port, char *domain
                         *ube = UBE_EDOMAIN;
                         goto fail;
                 }
+                if (type == PT_PAC) {
+                e_invpacurl:;
+                        *ube = UBE_INVPACURL;
+                        goto fail;
+                }
                 if (!host || !host[0] || port < 1) {
                         *ube = UBE_INVHOST;
                         goto fail;
@@ -111,6 +120,9 @@ static struct upstream *upstream_build (const char *host, int port, char *domain
         } else {
                 if (type == PT_NONE) {
                         if (!domain[0]) goto e_nonedomain;
+                } else if (type == PT_PAC) {
+                        if (!domain[0]) goto e_invpacurl;
+                        return up;
                 } else {
                         if (!host || !host[0] || !domain[0]) {
                                 *ube = UBE_INVPARAMS;
@@ -201,7 +213,42 @@ upstream_cleanup:
  */
 struct upstream *upstream_get (char *host, struct upstream *up)
 {
+        int i;
+        char **proxies;
+        pxProxyFactory *pf = NULL;
+        struct upstream *libproxy_up = NULL;
+        libproxy_up = (struct upstream *) safemalloc (sizeof (struct upstream));
         while (up) {
+                fprintf(stderr, "UPSTREAM \"type\": %d (%d)\n", up->type, PT_PAC);
+                fprintf(stderr, "request_for_host: %s\n", host);
+                if (up->type == PT_PAC) {
+                        pf = px_proxy_factory_new();
+                        proxies = px_proxy_factory_get_proxies(pf, "http://proxy.example.com");
+                        for (i=0; proxies[i]; i++) {
+                                if (!strncmp("direct", proxies[i], 6)) {
+                                        fprintf(stderr, "PAC: %s is DIRECT\n", host);
+                                        continue;
+                                } else if (!strncmp("http", proxies[i], 4)) {
+                                        /* TODO: safe_free if next==NULL */
+                                        proxies[i] = proxies[i]+7;
+                                        fprintf(stderr, "UPSTREAM PAC: %s\n", proxies[i]);
+                                        libproxy_up->next = NULL;
+                                        libproxy_up->host = "127.0.0.1";
+                                        libproxy_up->port = 8080;
+                                        libproxy_up->type = PT_HTTP;
+                                } else {
+                                        /* TODO: Add support for other protos */
+                                        break;
+                                }
+                        }
+                        px_proxy_factory_free(pf);
+                        /*safe_free(proxies);*/
+                        if (libproxy_up != NULL) {
+                                up = libproxy_up;
+                                break;
+                        }
+                }
+
                 if (up->target.type == HST_NONE)
                         break;
 

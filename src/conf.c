@@ -23,6 +23,8 @@
  * add new directives to.  Who knows if I'm right though.
  */
 
+#include <config.h>
+
 #include "common.h"
 #include <regex.h>
 #include "conf.h"
@@ -39,6 +41,10 @@
 #include "connect-ports.h"
 #include "basicauth.h"
 #include "conf-tokens.h"
+
+#ifdef HAVE_LIBPROXY
+#include <proxy.h>
+#endif
 
 #ifdef LINE_MAX
 #define TP_LINE_MAX LINE_MAX
@@ -246,7 +252,7 @@ struct {
 #endif
 #ifdef UPSTREAM_SUPPORT
         STDCONF (upstream,
-                 "(" "(none)" WS STR ")|" \
+                 "(" "(none|pac)" WS STR ")|" \
                  "(" "(http|socks4|socks5)" WS \
                      "(" USERNAME /*username*/ ":" PASSWORD /*password*/ "@" ")?"
                      "(" IP "|" ALNUM ")"
@@ -1069,6 +1075,7 @@ static enum proxy_type pt_from_string(const char *s)
 		[PT_HTTP]   = "http",
 		[PT_SOCKS4] = "socks4",
 		[PT_SOCKS5] = "socks5",
+                [PT_PAC]    = "pac",
 	};
 	unsigned i;
 	for (i = 0; i < sizeof(pt_map)/sizeof(pt_map[0]); i++)
@@ -1080,13 +1087,20 @@ static enum proxy_type pt_from_string(const char *s)
 static HANDLE_FUNC (handle_upstream)
 {
         char *ip;
-        int port, mi;
+        char *buf[255];
+        int port, mi, i;
         char *domain = 0, *user = 0, *pass = 0, *tmp;
         enum proxy_type pt;
         enum upstream_build_error ube;
+        fprintf (stderr, "!!!!: match[0]: %s\n", tmp = get_string_arg (line, &match[0]));
+        fprintf (stderr, "!!!!: match[1]: %s\n", tmp = get_string_arg (line, &match[1]));
+        fprintf (stderr, "!!!!: match[2]: %s\n", tmp = get_string_arg (line, &match[2]));
+        fprintf (stderr, "!!!!: match[3]: %s\n", tmp = get_string_arg (line, &match[3]));
+        fprintf (stderr, "!!!!: match[4]: %s\n", tmp = get_string_arg (line, &match[4]));
 
         if (match[3].rm_so != -1) {
                 tmp = get_string_arg (line, &match[3]);
+                fprintf (stderr, "!!!!: tmp: %s\n", tmp);
                 if(!strcmp(tmp, "none")) {
                         safefree(tmp);
                         if (match[4].rm_so == -1) return -1;
@@ -1096,12 +1110,43 @@ static HANDLE_FUNC (handle_upstream)
                         ube = upstream_add (NULL, 0, domain, 0, 0, PT_NONE, &conf->upstream_list);
                         safefree (domain);
                         goto check_err;
+                } else if (!strcmp(tmp, "pac")) {
+                        if (match[4].rm_so == -1) return -1;
+#ifndef HAVE_LIBPROXY
+                        safefree(tmp);
+                        ube = UBE_NOLIBPROXY;
+                        goto check_err;
+#endif
+                        tmp = get_string_arg (line, &match[4]);
+                        if (!tmp)
+                                return -1;
+                        /* TODO: Do something with "tmp" (what? how to manipulate wpad.url for libproxy?)*/
+                        ube = upstream_add (NULL, 0, tmp, 0, 0, PT_PAC, &conf->upstream_list);
+                        safefree(tmp);
+                        goto check_err;
+                        /*if (match[4].rm_so == -1) return -1;
+                        tmp = get_string_arg (line, &match[4]);
+                        if (!tmp)
+                                return -1;
+                        /'* TODO: Query libproxy *'/
+                        pf = px_proxy_factory_new();
+                        proxies = px_proxy_factory_get_proxies(pf, tmp);
+                        for (i=0; proxies[i]; i++) {
+                                fprintf(stderr, "proxy: %s\n", proxies[i]);
+                                /*snprintf(buf, 255, "host%d", i);
+                                ube = upstream_add (buf, i, "foo", 0, 0, PT_HTTP, &conf->upstream_list);
+                                if(ube != UBE_SUCCESS)
+                                        CP_WARN("PAC: %s", upstream_build_error_string(ube));*'/
+                        }
+                        px_proxy_factory_free(pf);
+                        return 0;*/
                 }
         }
 
         mi = 6;
 
         tmp = get_string_arg (line, &match[mi]);
+        fprintf(stderr, "!?!?!?!?: %s\n", tmp);
         pt = pt_from_string(tmp);
         safefree(tmp);
         mi += 2;
@@ -1125,6 +1170,7 @@ static HANDLE_FUNC (handle_upstream)
         if (match[mi].rm_so != -1)
                 domain = get_string_arg (line, &match[mi]);
 
+        fprintf (stderr, "!!!!: upstream_add(%s, %d, %s, %s, %s, %d, ?)\n", ip, port, domain, user, pass, pt);
         ube = upstream_add (ip, port, domain, user, pass, pt, &conf->upstream_list);
 
         safefree (user);

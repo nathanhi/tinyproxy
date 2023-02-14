@@ -36,6 +36,8 @@ enum upstream_build_error {
 	UBE_INVHOST,
 	UBE_INVPARAMS,
 	UBE_NETMASK,
+        UBE_NOLIBPROXY,
+        UBE_INVPACURL,
 };
 
 /*
@@ -46,7 +48,8 @@ typedef enum proxy_type {
 	PT_NONE = 0,
 	PT_HTTP,
 	PT_SOCKS4,
-	PT_SOCKS5
+	PT_SOCKS5,
+        PT_PAC
 } proxy_type;
 
 struct upstream {

@@ -181,6 +181,7 @@ LogLevel Info
 #  IP/mask  matches network/mask
 #
 #Upstream http some.remote.proxy:port
+Upstream pac "asdf"
 
 #
 # MaxClients: This is the absolute highest number of threads which will

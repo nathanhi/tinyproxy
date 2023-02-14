@@ -67,5 +67,9 @@ conf-tokens-gperf.inc: conf-tokens.gperf
 	$(GPERF) $< > $@
 endif
 
+if HAVE_LIBPROXY
+AM_CPPFLAGS += -DHAVE_LIBPROXY
+endif
+
 EXTRA_DIST = conf-tokens.gperf conf-tokens-gperf.inc
 
